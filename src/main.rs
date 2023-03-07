@@ -38,13 +38,13 @@ async fn main() -> anyhow::Result<()> {
     let rpc_socket: PathBuf = plugin.configuration().rpc_file.parse()?;
 
     let nostr_sec_key = plugin
-        .option("cln_nostr_nsec")
+        .option("clnzapper_nostr_nsec")
         .expect("Option is defined")
         .as_str()
         .expect("Option is a string")
         .to_owned();
     let nostr_relay = plugin
-        .option("cln_nostr_relay")
+        .option("clnzapper_nostr_relay")
         .expect("Option is defined")
         .as_str()
         .expect("Option is a string")
