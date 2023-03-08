@@ -130,7 +130,13 @@ struct ZapRequestInfo {
 }
 
 fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
-    let zap_request: Event = serde_json::from_str(description)?;
+    let description: Vec<Vec<String>> = serde_json::from_str(description)?;
+    let zap_request: Event = description
+        .iter()
+        .find(|i| i[0] == "text/plain")
+        .map(|i| serde_json::from_str(&i[1]))
+        .transpose()?
+        .unwrap();
 
     // Verify zap request is a valid nostr event
     zap_request.verify()?;
