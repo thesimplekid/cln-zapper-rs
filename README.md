@@ -1,3 +1,4 @@
+[![Crates.io](https://img.shields.io/crates/v/cargo-index-transit.svg)](https://crates.io/crates/cln-zapper)
 # Core Lightning plugin for sending zap events
 
 You can add the plugin by copying it to CLN's plugin directory or by adding the following line to your config file:

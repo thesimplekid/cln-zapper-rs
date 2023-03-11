@@ -3,8 +3,10 @@ name = "cln-zapper"
 version = "0.1.0"
 edition = "2021"
 authors = ["thesimplekid"]
-license = "BSD 3-Clause"
+license = "BSD-3-Clause"
 readme = "README.md"
+repository = "https://github.com/thesimplekid/cln-zapper-rs"
+description = "Core Lightning plugin for sending zap (NIP-57) notes"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
