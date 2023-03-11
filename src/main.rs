@@ -14,6 +14,8 @@ use tungstenite::Message as WsMessage;
 
 use std::string::String;
 
+use std::fs;
+
 use log::info;
 
 #[tokio::main]
@@ -54,12 +56,25 @@ async fn main() -> anyhow::Result<()> {
         .expect("Option is a string")
         .to_owned();
 
-    let mut relays = HashSet::new(); // vec![
+    let mut relays = HashSet::new();
     relays.insert(nostr_relay);
 
     let keys = Keys::from_sk_str(&nostr_sec_key)?;
 
+    /*
+    let mut last_pay_index = match read_last_pay_index() {
+        Ok(value) => value,
+        Err(_) => {
+            write_last_pay_index(1)?;
+            1
+        }
+    };
+    */
+
     let mut last_pay_index = 1;
+
+    info!("{last_pay_index}");
+
     loop {
         info!("Waiting for index: {last_pay_index}");
         let invoice = match wait_for_invoice(&rpc_socket, last_pay_index).await {
@@ -73,7 +88,10 @@ async fn main() -> anyhow::Result<()> {
         info!("Invoice: {:?}", invoice);
         match &invoice.status {
             WaitanyinvoiceStatus::EXPIRED => continue,
-            WaitanyinvoiceStatus::PAID => last_pay_index += 1,
+            WaitanyinvoiceStatus::PAID => {
+                last_pay_index += 1;
+                // write_last_pay_index(last_pay_index).ok();
+            }
         }
 
         let zap_request_info = match decode_zapreq(&invoice.description) {
@@ -94,7 +112,7 @@ async fn main() -> anyhow::Result<()> {
             }
         };
 
-        info!("Zap Note: {zap_note:?}");
+        info!("Zap Note: {}", zap_note.as_json());
 
         let mut relays = relays.clone();
         relays.extend(zap_request_info.relays);
@@ -162,19 +180,7 @@ struct ZapRequestInfo {
 }
 
 fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
-    // info!("String: {description:?}");
-    // let description: Vec<Vec<String>> = serde_json::from_str(description)?;
-    // info!("des: {description:?}");
     let zap_request: Event = Event::from_json(description)?;
-    /*
-    let zap_request: Event = description
-        .iter()
-        .find(|i| i[0] == "text/plain")
-        .map(|i| serde_json::from_str(&i[1]))
-        .transpose()?
-        .unwrap();
-    */
-    // info!("zap_request: {:?}", zap_request.as_json());
 
     // Verify zap request is a valid nostr event
     zap_request.verify()?;
@@ -284,46 +290,16 @@ fn create_zap_note(
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use std::str::FromStr;
+fn read_last_pay_index() -> Result<u64> {
+    let data = fs::read("output.bin").expect("Failed to read file");
+    let value = u64::from_ne_bytes(data.as_slice().try_into()?);
 
-    /*
-    #[test]
-    fn test_decode_zap_req() {
-        // TODO: Should test with an e tag
-        let description = "{\"id\":\"6d3eebdf11e7dc5ac8080be9e187c060a6951bc1ed384e890664193132215a57\",\"pubkey\":\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\",\"created_at\":1678388388,\"kind\":9734,\"tags\":[[\"p\",\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\"],[\"relays\",\"wss://relay.damus.io\",\"wss://nostr.wine\",\"wss://nostr-pub.wellorder.net\",\"wss://relay.orangepill.dev\",\"wss://relay.nostr.band\",\"wss://relay.utxo.one\",\"wss://dublin.saoirse.dev\",\"wss://brb.io\",\"wss://nostr.zebedee.cloud\",\"wss://mutinywallet.com\",\"wss://eden.nostr.land\",\"wss://nostr.oxtr.dev\",\"wss://nostr.milou.lol\"],[\"amount\",\"500000\"]],\"content\":\"\",\"sig\":\"68159b280732a8a67ce9def7d1f619326f9d9c772c37e7919aa9c32e96c34fbd93287b23e4ba341a5697a65efdea9b0b1300e6642080d0da0f171643baffb523\"}";
-        let zap_re_info = decode_zapreq(description).unwrap();
+    Ok(value)
+}
 
-        println!("{zap_re_info:?}");
-        assert_eq!(
-            zap_re_info.relays,
-                "wss://relay.damus.io",
-                "wss://nostr.wine",
-                "wss://nostr-pub.wellorder.net",
-                "wss://relay.orangepill.dev",
-                "wss://relay.nostr.band",
-                "wss://relay.utxo.one",
-                "wss://dublin.saoirse.dev",
-                "wss://brb.io",
-                "wss://nostr.zebedee.cloud",
-                "wss://mutinywallet.com",
-                "wss://eden.nostr.land",
-                "wss://nostr.oxtr.dev",
-                "wss://nostr.milou.lol"
-            ]
-        );
-        assert_eq!(
-            zap_re_info.p,
-            Tag::PubKey(
-                XOnlyPublicKey::from_str(
-                    "04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5"
-                )
-                .unwrap(),
-                None
-            )
-        );
-    }
-    */
+fn write_last_pay_index(last_pay_index: u64) -> Result<()> {
+    let data = last_pay_index.to_ne_bytes();
+
+    fs::write("output.bin", &data)?;
+    Ok(())
 }
