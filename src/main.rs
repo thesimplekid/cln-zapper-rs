@@ -3,11 +3,10 @@ use cln_plugin::options::{ConfigOption, Value};
 use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
 use futures::{Stream, StreamExt};
 use log::{debug, warn};
+use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::{stdin, stdout};
-use tokio::task;
-use serde::Serialize;
 
 use nostr::event::Event;
 use nostr::prelude::*;
@@ -15,8 +14,6 @@ use nostr::prelude::*;
 use tungstenite::Message as WsMessage;
 
 use std::string::String;
-
-use std::fs;
 
 use log::info;
 use std::collections::HashSet;
@@ -79,14 +76,12 @@ async fn main() -> anyhow::Result<()> {
         let mut relays = relays.clone();
         relays.extend(zap_request_info.relays);
 
-        task::spawn(async move {
-            let zap_note_id = zap_note.id.to_hex();
-            if let Err(err) = broadcast_zap_note(&relays, zap_note).await {
-                info!("Error while broadcasting zap note: {}", err);
-            };
-            info!("Broadcasted: {:?}", zap_note_id);
-            info!("To relays: {:?}", relays);
-        });
+        let zap_note_id = zap_note.id.to_hex();
+        if let Err(err) = broadcast_zap_note(&relays, zap_note).await {
+            info!("Error while broadcasting zap note: {}", err);
+        };
+        info!("Broadcasted: {:?}", zap_note_id);
+        // info!("To relays: {:?}", relays);
     }
 
     Ok(())
@@ -94,11 +89,9 @@ async fn main() -> anyhow::Result<()> {
 
 async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result<()> {
     // Create new client
-    // let client = Client::new(keys);
     zap_note.verify()?;
     // info!("Note to broadcast {}", zap_note.as_json());
 
-    // Add relays
     for relay in relays {
         let mut socket = match tungstenite::connect(relay) {
             Ok((s, _)) => s,
@@ -107,13 +100,14 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
                 continue;
             }
         };
+
         // Send msg
         let msg = ClientMessage::new_event(zap_note.clone()).as_json();
         socket
             .write_message(WsMessage::Text(msg))
             .expect("Impossible to send message");
     }
-    info!("relays: {:?}", relays);
+    // info!("relays: {:?}", relays);
 
     Ok(())
 }
@@ -128,6 +122,7 @@ async fn invoice_stream(
         |(mut cln_client, mut last_pay_idx)| async move {
             // We loop here since some invoices aren't zaps, in which case we wait for the next one and don't yield
             loop {
+                // info!("Waiting for index: {last_pay_idx:?}");
                 let invoice_res = cln_client
                     .call(cln_rpc::Request::WaitAnyInvoice(WaitanyinvoiceRequest {
                         timeout: None,
@@ -262,7 +257,7 @@ fn create_zap_note(
     };
 
     // Check there is a preimage
-    let preimage = match invoice.payment_preimage {
+    let _preimage = match invoice.payment_preimage {
         Some(pre_image) => pre_image,
         None => return Err(anyhow!("No pre image")),
     };
@@ -274,10 +269,11 @@ fn create_zap_note(
     ));
 
     // Add preimage tag
-    //tags.push(Tag::Generic(
-    //    nostr_sdk::prelude::TagKind::Custom("preimage".to_string()),
-    //    vec![String::from_utf8_lossy(&preimage.to_vec()).to_string()],
-    //));
+    // Pre image is optional according to the spec
+    // tags.push(Tag::Generic(
+    //     TagKind::Custom("preimage".to_string()),
+    //     vec![preimage.to_vec()],
+    // ));
 
     // Add description tag
     // description of bolt11 invoice a JSON encoded zap request

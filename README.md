@@ -1,5 +1,3 @@
-# **Unfinished and Untested**
-
 # Core Lightning plugin for sending zap events
 
 You can add the plugin by copying it to CLN's plugin directory or by adding the following line to your config file:
@@ -35,6 +33,6 @@ https://github.com/jb55/cln-nostr-zapper
 
 
 ## TODO
- - [ ] Actually test it
- - [ ] Env logger
  - [ ] multiple relays from config
+ - [ ] save last pay index type so on a restart it doesn't start from 1
+ - [ ] Spawn broadcast of zap notes
