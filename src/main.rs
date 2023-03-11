@@ -1,11 +1,13 @@
 use anyhow::{anyhow, Result};
 use cln_plugin::options::{ConfigOption, Value};
-use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse, WaitanyinvoiceStatus};
-use nostr::{EventBuilder, Keys, Tag};
-use serde::Serialize;
-use std::{collections::HashSet, path::PathBuf};
+use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
+use futures::{Stream, StreamExt};
+use log::{debug, warn};
+use std::path::PathBuf;
+use std::time::Duration;
 use tokio::io::{stdin, stdout};
 use tokio::task;
+use serde::Serialize;
 
 use nostr::event::Event;
 use nostr::prelude::*;
@@ -17,6 +19,7 @@ use std::string::String;
 use std::fs;
 
 use log::info;
+use std::collections::HashSet;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -61,49 +64,8 @@ async fn main() -> anyhow::Result<()> {
 
     let keys = Keys::from_sk_str(&nostr_sec_key)?;
 
-    /*
-    let mut last_pay_index = match read_last_pay_index() {
-        Ok(value) => value,
-        Err(_) => {
-            write_last_pay_index(1)?;
-            1
-        }
-    };
-    */
-
-    let mut last_pay_index = 1;
-
-    info!("{last_pay_index}");
-
-    loop {
-        info!("Waiting for index: {last_pay_index}");
-        let invoice = match wait_for_invoice(&rpc_socket, last_pay_index).await {
-            Ok(invoice) => invoice,
-            Err(err) => {
-                info!("Error while waiting for invoice: {}", err);
-                continue;
-            }
-        };
-
-        info!("Invoice: {:?}", invoice);
-        match &invoice.status {
-            WaitanyinvoiceStatus::EXPIRED => continue,
-            WaitanyinvoiceStatus::PAID => {
-                last_pay_index += 1;
-                // write_last_pay_index(last_pay_index).ok();
-            }
-        }
-
-        let zap_request_info = match decode_zapreq(&invoice.description) {
-            Ok(info) => info,
-            Err(err) => {
-                info!("Error while decoding zap request info: {:?}", err);
-                continue;
-            }
-        };
-
-        info!("Zap Request: {zap_request_info:?}");
-
+    let mut invoices = invoice_stream(&rpc_socket).await?;
+    while let Some((zap_request_info, invoice)) = invoices.next().await {
         let zap_note = match create_zap_note(&keys, zap_request_info.clone(), invoice) {
             Ok(note) => note,
             Err(err) => {
@@ -126,6 +88,8 @@ async fn main() -> anyhow::Result<()> {
             info!("To relays: {:?}", relays);
         });
     }
+
+    Ok(())
 }
 
 async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result<()> {
@@ -154,21 +118,56 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
     Ok(())
 }
 
-async fn wait_for_invoice(
+async fn invoice_stream(
     socket_addr: &PathBuf,
-    lastpay_index: u64,
-) -> Result<WaitanyinvoiceResponse> {
-    let mut cln_client = cln_rpc::ClnRpc::new(&socket_addr).await?;
+) -> Result<impl Stream<Item = (ZapRequestInfo, WaitanyinvoiceResponse)>> {
+    let cln_client = cln_rpc::ClnRpc::new(&socket_addr).await?;
 
-    let invoice = cln_client
-        .call(cln_rpc::Request::WaitAnyInvoice(WaitanyinvoiceRequest {
-            timeout: None,
-            lastpay_index: Some(lastpay_index),
-        }))
-        .await?;
+    Ok(futures::stream::unfold(
+        (cln_client, None),
+        |(mut cln_client, mut last_pay_idx)| async move {
+            // We loop here since some invoices aren't zaps, in which case we wait for the next one and don't yield
+            loop {
+                let invoice_res = cln_client
+                    .call(cln_rpc::Request::WaitAnyInvoice(WaitanyinvoiceRequest {
+                        timeout: None,
+                        lastpay_index: last_pay_idx,
+                    }))
+                    .await;
 
-    let invoice: WaitanyinvoiceResponse = invoice.try_into().unwrap();
-    Ok(invoice)
+                let invoice: WaitanyinvoiceResponse = match invoice_res {
+                    Ok(invoice) => invoice,
+                    Err(e) => {
+                        warn!("Error fetching invoice: {e}");
+                        // Let's not spam CLN with requests on failure
+                        tokio::time::sleep(Duration::from_secs(1)).await;
+                        // Retry same reqeuest
+                        continue;
+                    }
+                }
+                .try_into()
+                .expect("Wrong response from CLN");
+
+                match decode_zapreq(&invoice.description) {
+                    Ok(zap) => {
+                        let pay_idx = invoice.pay_index;
+                        // yield zap
+                        break Some(((zap, invoice), (cln_client, pay_idx)));
+                    }
+                    Err(e) => {
+                        debug!(
+                            "Error while decoding zap (likely just not a zap invoice): {}",
+                            e
+                        );
+                        // Process next invoice without yielding anything
+                        last_pay_idx = invoice.pay_index;
+                        continue;
+                    }
+                }
+            }
+        },
+    )
+    .boxed())
 }
 
 #[derive(Clone, Debug, Serialize)]
@@ -288,18 +287,4 @@ fn create_zap_note(
     ));
 
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
-}
-
-fn read_last_pay_index() -> Result<u64> {
-    let data = fs::read("output.bin").expect("Failed to read file");
-    let value = u64::from_ne_bytes(data.as_slice().try_into()?);
-
-    Ok(value)
-}
-
-fn write_last_pay_index(last_pay_index: u64) -> Result<()> {
-    let data = last_pay_index.to_ne_bytes();
-
-    fs::write("output.bin", &data)?;
-    Ok(())
 }
