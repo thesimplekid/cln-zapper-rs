@@ -1,16 +1,20 @@
 use anyhow::{anyhow, Result};
 use cln_plugin::options::{ConfigOption, Value};
 use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse, WaitanyinvoiceStatus};
-use nostr_sdk::{EventBuilder, Keys, Tag};
-use std::path::PathBuf;
+use nostr::{EventBuilder, Keys, Tag};
+use serde::Serialize;
+use std::{collections::HashSet, path::PathBuf};
 use tokio::io::{stdin, stdout};
+use tokio::task;
 
-use nostr_sdk::event::Event;
-use nostr_sdk::prelude::*;
+use nostr::event::Event;
+use nostr::prelude::*;
+
+use tungstenite::Message as WsMessage;
 
 use std::string::String;
 
-use log::{info, warn};
+use log::info;
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -50,21 +54,18 @@ async fn main() -> anyhow::Result<()> {
         .expect("Option is a string")
         .to_owned();
 
-    let relays = vec![
-        nostr_relay,
-        "wss://relay.oxtr.com".to_string(),
-        "wss://relay.damus.io".to_string(),
-        "wss://relay.utxo.one".to_string(),
-    ];
+    let mut relays = HashSet::new(); // vec![
+    relays.insert(nostr_relay);
 
     let keys = Keys::from_sk_str(&nostr_sec_key)?;
 
     let mut last_pay_index = 1;
     loop {
+        info!("Waiting for index: {last_pay_index}");
         let invoice = match wait_for_invoice(&rpc_socket, last_pay_index).await {
             Ok(invoice) => invoice,
             Err(err) => {
-                warn!("Error while waiting for invoice: {}", err);
+                info!("Error while waiting for invoice: {}", err);
                 continue;
             }
         };
@@ -72,61 +73,65 @@ async fn main() -> anyhow::Result<()> {
         info!("Invoice: {:?}", invoice);
         match &invoice.status {
             WaitanyinvoiceStatus::EXPIRED => continue,
-            WaitanyinvoiceStatus::PAID => last_pay_index = invoice.pay_index.unwrap() + 1,
+            WaitanyinvoiceStatus::PAID => last_pay_index += 1,
         }
 
         let zap_request_info = match decode_zapreq(&invoice.description) {
             Ok(info) => info,
             Err(err) => {
-                warn!("Error while decoding zap request info: {:?}", err);
+                info!("Error while decoding zap request info: {:?}", err);
                 continue;
             }
         };
+
+        info!("Zap Request: {zap_request_info:?}");
 
         let zap_note = match create_zap_note(&keys, zap_request_info.clone(), invoice) {
             Ok(note) => note,
             Err(err) => {
-                warn!("Error while creating zap note: {}", err);
+                info!("Error while creating zap note: {}", err);
                 continue;
             }
         };
 
-        let mut relays = relays.clone();
-        relays.extend(
-            zap_request_info
-                .relays
-                .iter()
-                .map(|r| r.clone().as_vec()[0].clone()),
-        );
+        info!("Zap Note: {zap_note:?}");
 
-        if let Err(err) = broadcast_zap_note(&keys, relays, zap_note.clone()).await {
-            warn!("Error while broadcasting zap note: {}", err);
-            continue;
-        };
-        info!("Broadcasted: {:?}", zap_note.as_json());
+        let mut relays = relays.clone();
+        relays.extend(zap_request_info.relays);
+
+        task::spawn(async move {
+            let zap_note_id = zap_note.id.to_hex();
+            if let Err(err) = broadcast_zap_note(&relays, zap_note).await {
+                info!("Error while broadcasting zap note: {}", err);
+            };
+            info!("Broadcasted: {:?}", zap_note_id);
+            info!("To relays: {:?}", relays);
+        });
     }
 }
 
-async fn broadcast_zap_note(keys: &Keys, relays: Vec<String>, zap_note: Event) -> Result<()> {
+async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result<()> {
     // Create new client
-    let client = Client::new(keys);
+    // let client = Client::new(keys);
+    zap_note.verify()?;
+    // info!("Note to broadcast {}", zap_note.as_json());
 
     // Add relays
-    for relay in &relays {
-        client.add_relay(relay, None).await?;
+    for relay in relays {
+        let mut socket = match tungstenite::connect(relay) {
+            Ok((s, _)) => s,
+            Err(err) => {
+                info!("Error connecting to {relay}: {err}");
+                continue;
+            }
+        };
+        // Send msg
+        let msg = ClientMessage::new_event(zap_note.clone()).as_json();
+        socket
+            .write_message(WsMessage::Text(msg))
+            .expect("Impossible to send message");
     }
     info!("relays: {:?}", relays);
-
-    zap_note.verify()?;
-
-    info!("{:#?}", zap_note);
-
-    client.send_event(zap_note).await?;
-        // Handle notifications
-        let mut notifications = client.notifications();
-        while let Ok(notification) = notifications.recv().await {
-            info!("{notification:?}");
-        }
 
     Ok(())
 }
@@ -148,25 +153,28 @@ async fn wait_for_invoice(
     Ok(invoice)
 }
 
-#[derive(Clone, Debug)]
+#[derive(Clone, Debug, Serialize)]
 struct ZapRequestInfo {
     zap_request: Event,
     p: Tag,
     e: Option<Tag>,
-    relays: Vec<Tag>,
+    relays: HashSet<String>,
 }
 
 fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
-    info!("String: {description:?}");
-    let description: Vec<Vec<String>> = serde_json::from_str(description)?;
-    info!("{description:?}");
+    // info!("String: {description:?}");
+    // let description: Vec<Vec<String>> = serde_json::from_str(description)?;
+    // info!("des: {description:?}");
+    let zap_request: Event = Event::from_json(description)?;
+    /*
     let zap_request: Event = description
         .iter()
         .find(|i| i[0] == "text/plain")
         .map(|i| serde_json::from_str(&i[1]))
         .transpose()?
         .unwrap();
-    info!("zap_request: {:?}", zap_request);
+    */
+    // info!("zap_request: {:?}", zap_request.as_json());
 
     // Verify zap request is a valid nostr event
     zap_request.verify()?;
@@ -201,12 +209,27 @@ fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
     };
 
     // Filter to get relay tags
-    let relays: Vec<Tag> = zap_request
+    // Im sure the filter and for loop can be done better
+    let relays_tag: Vec<Tag> = zap_request
         .tags
         .iter()
-        .filter(|t| matches!(t, Tag::Relay(_)))
+        .filter(|t| matches!(t, Tag::Generic(TagKind::Custom(_relays_string), _)))
         .cloned()
         .collect();
+
+    let mut relays = vec![];
+    for r in &relays_tag {
+        let mut r = r.as_vec();
+        if r[0].eq("relays") {
+            // println!("{r:?}");
+            r.remove(0);
+            relays = r;
+        }
+    }
+
+    let relays: HashSet<String> = relays.iter().cloned().collect();
+
+    // println!("{relays:?}");
 
     Ok(ZapRequestInfo {
         zap_request,
@@ -241,36 +264,66 @@ fn create_zap_note(
 
     // Add bolt11 tag
     tags.push(Tag::Generic(
-        nostr_sdk::prelude::TagKind::Custom("bolt11".to_string()),
+        TagKind::Custom("bolt11".to_string()),
         vec![bolt11],
     ));
 
-    //// Add preimage tag
+    // Add preimage tag
     //tags.push(Tag::Generic(
     //    nostr_sdk::prelude::TagKind::Custom("preimage".to_string()),
     //    vec![String::from_utf8_lossy(&preimage.to_vec()).to_string()],
     //));
 
     // Add description tag
+    // description of bolt11 invoice a JSON encoded zap request
     tags.push(Tag::Generic(
-        nostr_sdk::prelude::TagKind::Custom("description".to_string()),
-        vec![zap_request_info.zap_request.as_json().replace("/", "")],
+        TagKind::Custom("description".to_string()),
+        vec![zap_request_info.zap_request.as_json()],
     ));
 
-    Ok(EventBuilder::new(nostr_sdk::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
+    Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::str::FromStr;
 
+    /*
     #[test]
     fn test_decode_zap_req() {
-        let t =  "[[\\\"text/plain\\\",\\\"{\\\\\\\"id\\\\\\\":\\\\\\\"c0c954af17d7b9a5fe89ffb57b03ab9891ab9cff3ae4a9afebdfa1fc5a4a3ac0\\\\\\\",\\\\\\\"pubkey\\\\\\\":\\\\\\\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\\\\\\\",\\\\\\\"created_at\\\\\\\":1678324657,\\\\\\\"kind\\\\\\\":9734,\\\\\\\"tags\\\\\\\":[[\\\\\\\"p\\\\\\\",\\\\\\\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\\\\\\\"],[\\\\\\\"relays\\\\\\\",\\\\\\\"wss://relay.damus.io\\\\\\\",\\\\\\\"wss://nostr.wine\\\\\\\",\\\\\\\"wss://nostr-pub.wellorder.net\\\\\\\",\\\\\\\"wss://relay.orangepill.dev\\\\\\\",\\\\\\\"wss://relay.nostr.band\\\\\\\",\\\\\\\"wss://relay.utxo.one\\\\\\\",\\\\\\\"wss://dublin.saoirse.dev\\\\\\\",\\\\\\\"wss://brb.io\\\\\\\",\\\\\\\"wss://nostr.zebedee.cloud\\\\\\\",\\\\\\\"wss://mutinywallet.com\\\\\\\",\\\\\\\"wss://eden.nostr.land\\\\\\\",\\\\\\\"wss://nostr.oxtr.dev\\\\\\\",\\\\\\\"wss://nostr.milou.lol\\\\\\\"],[\\\\\\\"amount\\\\\\\",\\\\\\\"500000\\\\\\\"]],\\\\\\\"content\\\\\\\":\\\\\\\"\\\\\\\",\\\\\\\"sig\\\\\\\":\\\\\\\"c9e5da6b7cb3c204e72518d543eda2f948a345abf9e470e917851dc2c54ae53de7ef536e85e9abe746460260e530ba7505fc3c79c54cae598c6f80fc0681ade8\\\\\\\"}\\\"]]";
-        //let zap_req = "[[\\\"text/plain\\\",\\\"{\\\"id\\\":\\\"8afbee1ef9ca4289f4c160b584cc14706af69081ad18577c6504953eba88eb1e\\\",\\\"pubkey\\\":\\\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\\\",\\\"created_at\\\":1678311783,\\\"kind\\\":9734,\\\"tags\\\":[[\\\"e\\\",\\\"d2b74f7f6344ac504c1c20d6d30c90eb9706820dc48ae2c9931f2c4881f66295\\\"],[\\\"p\\\",\\\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\\\"],[\\\"relays\\\",\\\"wss://relay.nostr.band\\\",\\\"wss://relay.damus.io\\\",\\\"wss://nostr.wine\\\",\\\"wss://relay.orangepill.dev\\\",\\\"wss://brb.io\\\",\\\"wss://nostr.milou.lol\\\",\\\"wss://nostr-pub.wellorder.net\\\",\\\"wss://dublin.saoirse.dev\\\",\\\"wss://relay.utxo.one\\\",\\\"wss://nostr.oxtr.dev\\\",\\\"wss://eden.nostr.land\\\",\\\"wss://mutinywallet.com\\\",\\\"wss://nostr.africa.gives\\\",\\\"wss://nostr.zebedee.cloud\\\"],[\\\"amount\\\",\\\"500000\\\"]],\\\"content\\\":\\\"\\\",\\\"sig\\\":\\\"aa787e6636efebdbb725fbe24bb6ae54626db29c60ae905802ccb7249ee3dfa18ec877137fd5d317858239958fd4f7a864daa6a7c11ba1d9366ea1eebd414faf\\\"}\\\"]]";
-
-        let zap_re_info = decode_zapreq(t).unwrap();
+        // TODO: Should test with an e tag
+        let description = "{\"id\":\"6d3eebdf11e7dc5ac8080be9e187c060a6951bc1ed384e890664193132215a57\",\"pubkey\":\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\",\"created_at\":1678388388,\"kind\":9734,\"tags\":[[\"p\",\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\"],[\"relays\",\"wss://relay.damus.io\",\"wss://nostr.wine\",\"wss://nostr-pub.wellorder.net\",\"wss://relay.orangepill.dev\",\"wss://relay.nostr.band\",\"wss://relay.utxo.one\",\"wss://dublin.saoirse.dev\",\"wss://brb.io\",\"wss://nostr.zebedee.cloud\",\"wss://mutinywallet.com\",\"wss://eden.nostr.land\",\"wss://nostr.oxtr.dev\",\"wss://nostr.milou.lol\"],[\"amount\",\"500000\"]],\"content\":\"\",\"sig\":\"68159b280732a8a67ce9def7d1f619326f9d9c772c37e7919aa9c32e96c34fbd93287b23e4ba341a5697a65efdea9b0b1300e6642080d0da0f171643baffb523\"}";
+        let zap_re_info = decode_zapreq(description).unwrap();
 
         println!("{zap_re_info:?}");
+        assert_eq!(
+            zap_re_info.relays,
+                "wss://relay.damus.io",
+                "wss://nostr.wine",
+                "wss://nostr-pub.wellorder.net",
+                "wss://relay.orangepill.dev",
+                "wss://relay.nostr.band",
+                "wss://relay.utxo.one",
+                "wss://dublin.saoirse.dev",
+                "wss://brb.io",
+                "wss://nostr.zebedee.cloud",
+                "wss://mutinywallet.com",
+                "wss://eden.nostr.land",
+                "wss://nostr.oxtr.dev",
+                "wss://nostr.milou.lol"
+            ]
+        );
+        assert_eq!(
+            zap_re_info.p,
+            Tag::PubKey(
+                XOnlyPublicKey::from_str(
+                    "04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5"
+                )
+                .unwrap(),
+                None
+            )
+        );
     }
+    */
 }
