@@ -279,7 +279,7 @@ fn create_zap_note(
     // description of bolt11 invoice a JSON encoded zap request
     tags.push(Tag::Generic(
         TagKind::Custom("description".to_string()),
-        vec![zap_request_info.zap_request.as_json()],
+        vec![invoice.description],
     ));
 
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
