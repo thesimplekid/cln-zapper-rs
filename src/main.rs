@@ -4,6 +4,7 @@ use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
 use dirs::data_dir;
 use futures::{Stream, StreamExt};
 use log::{debug, warn};
+use nostr::prelude::hex::ToHex;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
@@ -287,19 +288,14 @@ fn create_zap_note(
         vec![bolt11],
     ));
 
-    // Check there is a preimage
-    let _preimage = match invoice.payment_preimage {
-        Some(pre_image) => pre_image,
-        None => return Err(anyhow!("No pre image")),
-    };
-
-    // TODO:
-    // Add preimage tag
-    // Pre image is optional according to the spec
-    // tags.push(Tag::Generic(
-    //     TagKind::Custom("preimage".to_string()),
-    //     vec![preimage.to_vec()],
-    // ));
+    if let Some(pre_image) = invoice.payment_preimage {
+        // Add preimage tag
+        // Pre image is optional according to the spec
+        tags.push(Tag::Generic(
+            TagKind::Custom("preimage".to_string()),
+            vec![pre_image.to_vec().to_hex()],
+        ));
+    }
 
     // Add description tag
     // description of bolt11 invoice a JSON encoded zap request
