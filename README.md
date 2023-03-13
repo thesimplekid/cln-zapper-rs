@@ -34,6 +34,6 @@ https://github.com/jb55/cln-nostr-zapper
 
 
 ## TODO
+ - [ ] Verify invoice amount matches zap amount
  - [ ] multiple relays from config
- - [ ] save last pay index type so on a restart it doesn't start from 1
  - [ ] Spawn broadcast of zap notes

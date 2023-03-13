@@ -1,6 +1,7 @@
 use anyhow::{anyhow, Result};
 use cln_plugin::options::{ConfigOption, Value};
 use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
+use dirs::data_dir;
 use futures::{Stream, StreamExt};
 use log::{debug, warn};
 use serde::Serialize;
@@ -15,8 +16,11 @@ use tungstenite::Message as WsMessage;
 
 use std::string::String;
 
-use log::info;
+use log::{error, info};
 use std::collections::HashSet;
+
+use std::fs::{self, File};
+use std::io::{Read, Write};
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
@@ -61,24 +65,35 @@ async fn main() -> anyhow::Result<()> {
 
     let keys = Keys::from_sk_str(&nostr_sec_key)?;
 
-    let mut invoices = invoice_stream(&rpc_socket).await?;
+    let last_pay_index = match read_last_pay_index() {
+        Ok(idx) => idx,
+        Err(_e) => {
+            if let Err(e) = write_last_pay_index(0) {
+                warn!("Write error: {e}");
+            }
+            0
+        }
+    };
+    info!("Starting at pay index: {last_pay_index}");
+
+    let mut invoices = invoice_stream(&rpc_socket, Some(last_pay_index)).await?;
     while let Some((zap_request_info, invoice)) = invoices.next().await {
         let zap_note = match create_zap_note(&keys, zap_request_info.clone(), invoice) {
             Ok(note) => note,
             Err(err) => {
-                info!("Error while creating zap note: {}", err);
+                error!("Error while creating zap note: {}", err);
                 continue;
             }
         };
 
-        info!("Zap Note: {}", zap_note.as_json());
+        debug!("Zap Note: {}", zap_note.as_json());
 
         let mut relays = relays.clone();
         relays.extend(zap_request_info.relays);
 
         let zap_note_id = zap_note.id.to_hex();
         if let Err(err) = broadcast_zap_note(&relays, zap_note).await {
-            info!("Error while broadcasting zap note: {}", err);
+            warn!("Error while broadcasting zap note: {}", err);
         };
         info!("Broadcasted: {:?}", zap_note_id);
         // info!("To relays: {:?}", relays);
@@ -95,8 +110,9 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
     for relay in relays {
         let mut socket = match tungstenite::connect(relay) {
             Ok((s, _)) => s,
+            // TODO: the mutiny relay returns an http 200 its getting logged as an error
             Err(err) => {
-                info!("Error connecting to {relay}: {err}");
+                warn!("Error connecting to {relay}: {err}");
                 continue;
             }
         };
@@ -107,18 +123,18 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
             .write_message(WsMessage::Text(msg))
             .expect("Impossible to send message");
     }
-    // info!("relays: {:?}", relays);
 
     Ok(())
 }
 
 async fn invoice_stream(
     socket_addr: &PathBuf,
+    last_pay_index: Option<u64>,
 ) -> Result<impl Stream<Item = (ZapRequestInfo, WaitanyinvoiceResponse)>> {
     let cln_client = cln_rpc::ClnRpc::new(&socket_addr).await?;
 
     Ok(futures::stream::unfold(
-        (cln_client, None),
+        (cln_client, last_pay_index),
         |(mut cln_client, mut last_pay_idx)| async move {
             // We loop here since some invoices aren't zaps, in which case we wait for the next one and don't yield
             loop {
@@ -136,14 +152,14 @@ async fn invoice_stream(
                         warn!("Error fetching invoice: {e}");
                         // Let's not spam CLN with requests on failure
                         tokio::time::sleep(Duration::from_secs(1)).await;
-                        // Retry same reqeuest
+                        // Retry same request
                         continue;
                     }
                 }
                 .try_into()
                 .expect("Wrong response from CLN");
 
-                match decode_zapreq(&invoice.description) {
+                match decode_zap_req(&invoice.description) {
                     Ok(zap) => {
                         let pay_idx = invoice.pay_index;
                         // yield zap
@@ -156,6 +172,11 @@ async fn invoice_stream(
                         );
                         // Process next invoice without yielding anything
                         last_pay_idx = invoice.pay_index;
+                        if let Some(idx) = last_pay_idx {
+                            if let Err(e) = write_last_pay_index(idx) {
+                                warn!("Could not write index tip: {e}");
+                            }
+                        };
                         continue;
                     }
                 }
@@ -167,13 +188,18 @@ async fn invoice_stream(
 
 #[derive(Clone, Debug, Serialize)]
 struct ZapRequestInfo {
+    /// Zap Request Event
     zap_request: Event,
+    /// p tag of zap request
     p: Tag,
+    /// E tag of zap request if related to event
     e: Option<Tag>,
+    /// Realys in zap request
     relays: HashSet<String>,
 }
 
-fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
+/// Decode str of JSON zap note
+fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
     let zap_request: Event = Event::from_json(description)?;
 
     // Verify zap request is a valid nostr event
@@ -217,19 +243,17 @@ fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
         .cloned()
         .collect();
 
+    // relays of zap request
     let mut relays = vec![];
     for r in &relays_tag {
         let mut r = r.as_vec();
         if r[0].eq("relays") {
-            // println!("{r:?}");
             r.remove(0);
             relays = r;
         }
     }
 
     let relays: HashSet<String> = relays.iter().cloned().collect();
-
-    // println!("{relays:?}");
 
     Ok(ZapRequestInfo {
         zap_request,
@@ -239,13 +263,14 @@ fn decode_zapreq(description: &str) -> Result<ZapRequestInfo> {
     })
 }
 
+/// Create zap note
 fn create_zap_note(
     keys: &Keys,
     zap_request_info: ZapRequestInfo,
     invoice: WaitanyinvoiceResponse,
 ) -> Result<Event> {
     let mut tags = if zap_request_info.e.is_some() {
-        vec![zap_request_info.e.unwrap(), zap_request_info.p]
+        vec![zap_request_info.p, zap_request_info.e.unwrap()]
     } else {
         vec![zap_request_info.p]
     };
@@ -256,18 +281,19 @@ fn create_zap_note(
         None => return Err(anyhow!("No bolt 11")),
     };
 
-    // Check there is a preimage
-    let _preimage = match invoice.payment_preimage {
-        Some(pre_image) => pre_image,
-        None => return Err(anyhow!("No pre image")),
-    };
-
     // Add bolt11 tag
     tags.push(Tag::Generic(
         TagKind::Custom("bolt11".to_string()),
         vec![bolt11],
     ));
 
+    // Check there is a preimage
+    let _preimage = match invoice.payment_preimage {
+        Some(pre_image) => pre_image,
+        None => return Err(anyhow!("No pre image")),
+    };
+
+    // TODO:
     // Add preimage tag
     // Pre image is optional according to the spec
     // tags.push(Tag::Generic(
@@ -283,4 +309,60 @@ fn create_zap_note(
     ));
 
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
+}
+
+fn index_file_path() -> Result<PathBuf> {
+    let mut file_path = match data_dir() {
+        Some(path) => path,
+        None => return Err(anyhow!("no data dir")),
+    };
+
+    file_path.push("cln-zapper");
+    file_path.push("last_pay_index");
+
+    Ok(file_path)
+}
+
+fn read_last_pay_index() -> Result<u64> {
+    let file_path = index_file_path()?;
+    let mut file = File::open(file_path)?;
+    let mut buffer = [0; 8];
+
+    file.read_exact(&mut buffer)?;
+    Ok(u64::from_ne_bytes(buffer))
+}
+
+fn write_last_pay_index(last_pay_index: u64) -> Result<()> {
+    let file_path = index_file_path()?;
+
+    // Create the directory if it doesn't exist
+    if let Some(parent_dir) = file_path.parent() {
+        fs::create_dir_all(parent_dir)?;
+    }
+
+    let mut file = File::create(&file_path)?;
+    file.write_all(&last_pay_index.to_ne_bytes())?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+
+    use super::*;
+
+    #[test]
+    fn save_last_pay_index() {
+        let last_pay_index = 42;
+        write_last_pay_index(last_pay_index).unwrap();
+
+        let file_last_pay_index = read_last_pay_index().unwrap();
+
+        assert_eq!(last_pay_index, file_last_pay_index);
+
+        let plus = file_last_pay_index + 1;
+        println!("{plus}");
+        write_last_pay_index(plus).unwrap();
+
+        assert_eq!(plus, read_last_pay_index().unwrap());
+    }
 }
