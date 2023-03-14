@@ -37,6 +37,15 @@ async fn main() -> anyhow::Result<()> {
             Value::String("ws://localhost:8080".to_string()),
             "Default relay to publish to",
         ))
+        .option(ConfigOption::new(
+            "clnzapper_pay_index_path",
+            // REVIEW: This should be an `Value::OptString`
+            // `Value::OptString` is `Some` even when it is not set in config
+            // this breaks the check later, setting the default to an empty string
+            // Then later checking if its empty if a HACK for now
+            Value::String("".into()),
+            "Path to pay index",
+        ))
         .dynamic()
         .start(())
         .await?
@@ -61,15 +70,33 @@ async fn main() -> anyhow::Result<()> {
         .expect("Option is a string")
         .to_owned();
 
+    // Get pay index file path from cln config if set
+    // if not set to default
+    // if invalid path string panic
+    let pay_index_path = plugin
+        .option("clnzapper_pay_index_path")
+        .map(|path| match path.as_str() {
+            // HACK: should be able to use option instead of empty string
+            Some("") => index_file_path(),
+            Some(p) => Ok(PathBuf::from(p)),
+            None => {
+                warn!("invalid pay index path");
+                panic!();
+            }
+        })
+        .unwrap_or_else(index_file_path)?;
+
+    info!("Pay index path {pay_index_path:?}");
+
     let mut relays = HashSet::new();
     relays.insert(nostr_relay);
 
     let keys = Keys::from_sk_str(&nostr_sec_key)?;
 
-    let last_pay_index = match read_last_pay_index() {
+    let last_pay_index = match read_last_pay_index(&pay_index_path) {
         Ok(idx) => idx,
         Err(_e) => {
-            if let Err(e) = write_last_pay_index(0) {
+            if let Err(e) = write_last_pay_index(&pay_index_path, 0) {
                 warn!("Write error: {e}");
             }
             0
@@ -77,7 +104,7 @@ async fn main() -> anyhow::Result<()> {
     };
     info!("Starting at pay index: {last_pay_index}");
 
-    let mut invoices = invoice_stream(&rpc_socket, Some(last_pay_index)).await?;
+    let mut invoices = invoice_stream(&rpc_socket, pay_index_path, Some(last_pay_index)).await?;
     while let Some((zap_request_info, invoice)) = invoices.next().await {
         let zap_note = match create_zap_note(&keys, zap_request_info.clone(), invoice) {
             Ok(note) => note,
@@ -96,7 +123,7 @@ async fn main() -> anyhow::Result<()> {
         if let Err(err) = broadcast_zap_note(&relays, zap_note).await {
             warn!("Error while broadcasting zap note: {}", err);
         };
-        info!("Broadcasted: {:?}", zap_note_id);
+        info!("Broadcasted: {}", zap_note_id);
         // info!("To relays: {:?}", relays);
     }
 
@@ -130,13 +157,14 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
 
 async fn invoice_stream(
     socket_addr: &PathBuf,
+    pay_index_path: PathBuf,
     last_pay_index: Option<u64>,
 ) -> Result<impl Stream<Item = (ZapRequestInfo, WaitanyinvoiceResponse)>> {
     let cln_client = cln_rpc::ClnRpc::new(&socket_addr).await?;
 
     Ok(futures::stream::unfold(
-        (cln_client, last_pay_index),
-        |(mut cln_client, mut last_pay_idx)| async move {
+        (cln_client, pay_index_path, last_pay_index),
+        |(mut cln_client, pay_index_path, mut last_pay_idx)| async move {
             // We loop here since some invoices aren't zaps, in which case we wait for the next one and don't yield
             loop {
                 // info!("Waiting for index: {last_pay_idx:?}");
@@ -163,7 +191,7 @@ async fn invoice_stream(
                 // Process next invoice without yielding anything
                 last_pay_idx = invoice.pay_index;
                 if let Some(idx) = last_pay_idx {
-                    if let Err(e) = write_last_pay_index(idx) {
+                    if let Err(e) = write_last_pay_index(&pay_index_path, idx) {
                         warn!("Could not write index tip: {e}");
                     }
                 };
@@ -172,7 +200,7 @@ async fn invoice_stream(
                     Ok(zap) => {
                         let pay_idx = invoice.pay_index;
                         // yield zap
-                        break Some(((zap, invoice), (cln_client, pay_idx)));
+                        break Some(((zap, invoice), (cln_client, pay_index_path, pay_idx)));
                     }
                     Err(e) => {
                         debug!(
@@ -196,7 +224,7 @@ struct ZapRequestInfo {
     p: Tag,
     /// E tag of zap request if related to event
     e: Option<Tag>,
-    /// Realys in zap request
+    /// Relays in zap request
     relays: HashSet<String>,
 }
 
@@ -241,6 +269,7 @@ fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
     let relays_tag: Vec<Tag> = zap_request
         .tags
         .iter()
+        // TODO: setting custom text here to "relays", may avoid need to check it in for loop
         .filter(|t| matches!(t, Tag::Generic(TagKind::Custom(_relays_string), _)))
         .cloned()
         .collect();
@@ -289,15 +318,6 @@ fn create_zap_note(
         vec![bolt11],
     ));
 
-    if let Some(pre_image) = invoice.payment_preimage {
-        // Add preimage tag
-        // Pre image is optional according to the spec
-        tags.push(Tag::Generic(
-            TagKind::Custom("preimage".to_string()),
-            vec![pre_image.to_vec().to_hex()],
-        ));
-    }
-
     // Add description tag
     // description of bolt11 invoice a JSON encoded zap request
     tags.push(Tag::Generic(
@@ -305,9 +325,19 @@ fn create_zap_note(
         vec![invoice.description],
     ));
 
+    // Add preimage tag if set
+    // Pre image is optional according to the spec
+    if let Some(pre_image) = invoice.payment_preimage {
+        tags.push(Tag::Generic(
+            TagKind::Custom("preimage".to_string()),
+            vec![pre_image.to_vec().to_hex()],
+        ));
+    }
+
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
 }
 
+/// Default file path for last pay index tip
 fn index_file_path() -> Result<PathBuf> {
     let mut file_path = match data_dir() {
         Some(path) => path,
@@ -320,8 +350,8 @@ fn index_file_path() -> Result<PathBuf> {
     Ok(file_path)
 }
 
-fn read_last_pay_index() -> Result<u64> {
-    let file_path = index_file_path()?;
+/// Read last pay index tip from file
+fn read_last_pay_index(file_path: &PathBuf) -> Result<u64> {
     let mut file = File::open(file_path)?;
     let mut buffer = [0; 8];
 
@@ -329,15 +359,14 @@ fn read_last_pay_index() -> Result<u64> {
     Ok(u64::from_ne_bytes(buffer))
 }
 
-fn write_last_pay_index(last_pay_index: u64) -> Result<()> {
-    let file_path = index_file_path()?;
-
+/// Write last pay index tip to file
+fn write_last_pay_index(file_path: &PathBuf, last_pay_index: u64) -> Result<()> {
     // Create the directory if it doesn't exist
     if let Some(parent_dir) = file_path.parent() {
         fs::create_dir_all(parent_dir)?;
     }
 
-    let mut file = File::create(&file_path)?;
+    let mut file = File::create(file_path)?;
     file.write_all(&last_pay_index.to_ne_bytes())?;
     Ok(())
 }
@@ -346,20 +375,20 @@ fn write_last_pay_index(last_pay_index: u64) -> Result<()> {
 mod tests {
 
     use super::*;
-
     #[test]
     fn save_last_pay_index() {
+        let path = PathBuf::from("./test/last_index");
         let last_pay_index = 42;
-        write_last_pay_index(last_pay_index).unwrap();
+        write_last_pay_index(&path, last_pay_index).unwrap();
 
-        let file_last_pay_index = read_last_pay_index().unwrap();
+        let file_last_pay_index = read_last_pay_index(&path).unwrap();
 
         assert_eq!(last_pay_index, file_last_pay_index);
 
         let plus = file_last_pay_index + 1;
         println!("{plus}");
-        write_last_pay_index(plus).unwrap();
+        write_last_pay_index(&path, plus).unwrap();
 
-        assert_eq!(plus, read_last_pay_index().unwrap());
+        assert_eq!(plus, read_last_pay_index(&path).unwrap());
     }
 }
