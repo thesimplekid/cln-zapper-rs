@@ -372,8 +372,7 @@ mod tests {
 
     use std::str::FromStr;
 
-    use cln_rpc::primitives::{Amount, Secret};
-    use nostr::prelude::hex::FromHex;
+    use cln_rpc::primitives::Amount;
 
     use super::*;
 
