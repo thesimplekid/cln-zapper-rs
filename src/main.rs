@@ -160,6 +160,14 @@ async fn invoice_stream(
                 .try_into()
                 .expect("Wrong response from CLN");
 
+                // Process next invoice without yielding anything
+                last_pay_idx = invoice.pay_index;
+                if let Some(idx) = last_pay_idx {
+                    if let Err(e) = write_last_pay_index(idx) {
+                        warn!("Could not write index tip: {e}");
+                    }
+                };
+
                 match decode_zap_req(&invoice.description) {
                     Ok(zap) => {
                         let pay_idx = invoice.pay_index;
@@ -171,13 +179,6 @@ async fn invoice_stream(
                             "Error while decoding zap (likely just not a zap invoice): {}",
                             e
                         );
-                        // Process next invoice without yielding anything
-                        last_pay_idx = invoice.pay_index;
-                        if let Some(idx) = last_pay_idx {
-                            if let Err(e) = write_last_pay_index(idx) {
-                                warn!("Could not write index tip: {e}");
-                            }
-                        };
                         continue;
                     }
                 }
