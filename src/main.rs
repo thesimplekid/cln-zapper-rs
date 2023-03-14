@@ -264,25 +264,20 @@ fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
         _ => return Err(anyhow!("Too many e tags")),
     };
 
-    // Filter to get relay tags
-    // Im sure the filter and for loop can be done better
-    let relays_tag: Vec<Tag> = zap_request
+    let relays: Vec<String> = zap_request
         .tags
         .iter()
-        // TODO: setting custom text here to "relays", may avoid need to check it in for loop
-        .filter(|t| matches!(t, Tag::Generic(TagKind::Custom(_relays_string), _)))
-        .cloned()
+        .filter_map(|tag| match tag {
+            Tag::Generic(TagKind::Custom(name), values) if name == "relays" => Some(
+                values
+                    .iter()
+                    .map(|value| value.to_string())
+                    .collect::<Vec<String>>(),
+            ),
+            _ => None,
+        })
+        .flatten()
         .collect();
-
-    // relays of zap request
-    let mut relays = vec![];
-    for r in &relays_tag {
-        let mut r = r.as_vec();
-        if r[0].eq("relays") {
-            r.remove(0);
-            relays = r;
-        }
-    }
 
     let relays: HashSet<String> = relays.iter().cloned().collect();
 
