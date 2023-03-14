@@ -95,7 +95,8 @@ async fn main() -> anyhow::Result<()> {
 
     let last_pay_index = match read_last_pay_index(&pay_index_path) {
         Ok(idx) => idx,
-        Err(_e) => {
+        Err(e) => {
+            warn!("Could not read last pay index: {e}");
             if let Err(e) = write_last_pay_index(&pay_index_path, 0) {
                 warn!("Write error: {e}");
             }
@@ -188,7 +189,6 @@ async fn invoice_stream(
                 .try_into()
                 .expect("Wrong response from CLN");
 
-                // Process next invoice without yielding anything
                 last_pay_idx = invoice.pay_index;
                 if let Some(idx) = last_pay_idx {
                     if let Err(e) = write_last_pay_index(&pay_index_path, idx) {
@@ -203,6 +203,7 @@ async fn invoice_stream(
                         break Some(((zap, invoice), (cln_client, pay_index_path, pay_idx)));
                     }
                     Err(e) => {
+                        // Process next invoice without yielding anything
                         debug!(
                             "Error while decoding zap (likely just not a zap invoice): {}",
                             e
@@ -369,9 +370,15 @@ fn write_last_pay_index(file_path: &PathBuf, last_pay_index: u64) -> Result<()> 
 #[cfg(test)]
 mod tests {
 
+    use std::str::FromStr;
+
+    use cln_rpc::primitives::{Amount, Secret};
+    use nostr::prelude::hex::FromHex;
+
     use super::*;
+
     #[test]
-    fn save_last_pay_index() {
+    fn test_save_last_pay_index() {
         let path = PathBuf::from("./test/last_index");
         let last_pay_index = 42;
         write_last_pay_index(&path, last_pay_index).unwrap();
@@ -385,5 +392,33 @@ mod tests {
         write_last_pay_index(&path, plus).unwrap();
 
         assert_eq!(plus, read_last_pay_index(&path).unwrap());
+    }
+
+    #[test]
+    fn test_create_zap_note() {
+        use nostr::Keys;
+
+        let keys =
+            Keys::from_sk_str("505fd02741816952ec9a70204221acdd8458906d3e1e0604fef033876c811a8f")
+                .unwrap();
+        let zap_req = "{\"content\":\"\",\"created_at\":1678734288,\"id\":\"c93b75ff70b07d28287059d750756f93281ac779cd780e7d61b781f9862c5a81\",\"kind\":9734,\"pubkey\":\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\",\"sig\":\"512d0a3ec6b9797810272b9dc05cadb7f6d271ff72a183350f643fa761bc37820e877563ddc1c5ef30a549a63115a6e907412a60de1dbe35dd7ea3b431a534ba\",\"tags\":[[\"e\",\"d07f03815931a3767ea91ee9cb3920758cd6dcb4e206ef0f1061f7e3c51f338e\"],[\"p\",\"00003687cecf074d81949ce8b95a860789e2be03925f3d3860ae27573fdc2218\"],[\"relays\",\"wss://nostr.wine\",\"wss://relay.damus.io\",\"wss://relay.orangepill.dev\",\"wss://dublin.saoirse.dev\",\"wss://relay.utxo.one\",\"wss://relay.nostr.band\",\"wss://nostr-pub.wellorder.net\",\"wss://nostr.milou.lol\",\"wss://nostr.oxtr.dev\",\"wss://eden.nostr.land\",\"wss://mutinywallet.com\",\"wss://nostr.zebedee.cloud\",\"wss://brb.io\"],[\"amount\",\"50000\"]]}";
+
+        let zap_req_info = decode_zap_req(zap_req).unwrap();
+
+        let invoice = WaitanyinvoiceResponse { label: "c15c98b0-81fe-4864-a9c5-ffad716d466a".to_string(), description: zap_req.to_string(), payment_hash: sha256::Hash::from_str("83f34c56502833b28dc64b382ef8462c2f5edb19c427fd5456d46bfc5c35914b").unwrap(), status: cln_rpc::model::WaitanyinvoiceStatus::PAID, expires_at: 1687338240, amount_msat: Some(Amount::from_msat(5000)), bolt11: Some("lnbc500n1pjq7u7jsp5n5jth3w6d4wjnjmup0nwlr2xfqthg8leru8yj8cyqf3sszapfxeqpp5s0e5c4js9qem9rwxfvuza7zx9sh4akcecsnl64zk634lchp4j99shp5ctnx2g7vddpve39pa35f70d4yua7fypfqjepcygq938ev86ekd7sxqyjw5qcqpjrzjqvhxqvs0ulx0mf5gp6x2vw047capck4pxqnsjv0gg8a4zaegej6gxzlgzuqqttgqqyqqqqqqqqqqqqqqyg9qyysgqs80g00rantwaay8g6wwev33v7xgtu8qkmq4hflgs93ygrxccry6qlhksdd0497pusvlsx3emk0hj5ghecxf6pw84tgxf99r5jg7mjrgpammhml".to_string()), bolt12: None, pay_index: Some(1), amount_received_msat: Some(Amount::from_msat(50000)), paid_at: Some(1687251840), payment_preimage: None};
+
+        let zap_note = create_zap_note(&keys, zap_req_info, invoice.clone()).unwrap();
+
+        zap_note.verify().unwrap();
+
+        let zap_req: serde_json::Value = serde_json::from_str(zap_req).unwrap();
+
+        let zap_req_hash = sha256::Hash::hash(zap_req.to_string().as_bytes());
+
+        let invoice_des_has = sha256::Hash::hash(invoice.description.as_bytes());
+
+        println!("hash: {}", invoice_des_has);
+
+        assert_eq!(zap_req_hash, invoice_des_has);
     }
 }
