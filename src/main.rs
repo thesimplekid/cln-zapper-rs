@@ -39,10 +39,6 @@ async fn main() -> anyhow::Result<()> {
         ))
         .option(ConfigOption::new(
             "clnzapper_pay_index_path",
-            // REVIEW: This should be an `Value::OptString`
-            // `Value::OptString` is `Some` even when it is not set in config
-            // this breaks the check later, setting the default to an empty string
-            // Then later checking if its empty if a HACK for now
             Value::OptString,
             "Path to pay index",
         ))
