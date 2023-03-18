@@ -1,5 +1,7 @@
 # Changelog
 
+- Improvement: Correct use for optional configs
+
 ## 0.2.0
 - Fix: Increment pay index count for non zaps [(@denis2342)](https://github.com/denis2342) 
 - Improvement: Add option to config for path of last pay index tip

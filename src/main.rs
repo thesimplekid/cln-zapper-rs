@@ -72,19 +72,15 @@ async fn main() -> anyhow::Result<()> {
 
     // Get pay index file path from cln config if set
     // if not set to default
-    // if invalid path string panic
-    let pay_index_path = plugin
-        .option("clnzapper_pay_index_path")
-        .map(|path| match path.as_str() {
-            // HACK: should be able to use option instead of empty string
-            Some("") => index_file_path(),
-            Some(p) => Ok(PathBuf::from(p)),
-            None => {
-                warn!("invalid pay index path");
-                panic!();
-            }
-        })
-        .unwrap_or_else(index_file_path)?;
+    let pay_index_path = match plugin.option("clnzapper_pay_index_path") {
+        Some(Value::String(path)) => PathBuf::from(path),
+        Some(Value::OptString) => index_file_path()?,
+        _ => {
+            // Something unexpected happened
+            warn!("Unexpected index path config");
+            index_file_path()?
+        }
+    };
 
     info!("Pay index path {pay_index_path:?}");
 
