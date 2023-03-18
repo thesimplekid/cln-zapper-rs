@@ -191,6 +191,22 @@ async fn invoice_stream(
                 match decode_zap_req(&invoice.description) {
                     Ok(zap) => {
                         let pay_idx = invoice.pay_index;
+
+                        // If there is an amount tag present in zap request check it matches invoice
+                        if let (Some(zap_request_amount), Some(invoice_amount)) =
+                            (zap.amount, invoice.amount_msat)
+                        {
+                            if zap_request_amount.ne(&invoice_amount.msat()) {
+                                info!(
+                                    "Zap request {} amount does not equal invoice amount {}",
+                                    zap.zap_request.id.to_hex(),
+                                    invoice.label
+                                );
+                                // Don't yield wait for next invoice
+                                continue;
+                            }
+                        }
+
                         // yield zap
                         break Some(((zap, invoice), (cln_client, pay_index_path, pay_idx)));
                     }
@@ -219,6 +235,8 @@ struct ZapRequestInfo {
     e: Option<Tag>,
     /// Relays in zap request
     relays: HashSet<String>,
+    /// Amount
+    amount: Option<u64>,
 }
 
 /// Decode str of JSON zap note
@@ -274,11 +292,21 @@ fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
 
     let relays: HashSet<String> = relays.iter().cloned().collect();
 
+    let amount = zap_request.tags.iter().find_map(|tag| {
+        if let Tag::Generic(TagKind::Custom(ref name), value) = tag {
+            if name == "amount" {
+                return value[0].parse().ok();
+            }
+        }
+        None
+    });
+
     Ok(ZapRequestInfo {
         zap_request,
         p: p_tag,
         e: e_tag,
         relays,
+        amount,
     })
 }
 

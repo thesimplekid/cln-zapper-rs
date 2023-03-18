@@ -1,6 +1,8 @@
 # Changelog
 
+## 0.2.2
 - Improvement: Correct use for optional configs
+- Improvement: Check zap request amount matches invoice amount
 
 ## 0.2.0
 - Fix: Increment pay index count for non zaps [(@denis2342)](https://github.com/denis2342) 
