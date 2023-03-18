@@ -43,7 +43,7 @@ async fn main() -> anyhow::Result<()> {
             // `Value::OptString` is `Some` even when it is not set in config
             // this breaks the check later, setting the default to an empty string
             // Then later checking if its empty if a HACK for now
-            Value::String("".into()),
+            Value::OptString,
             "Path to pay index",
         ))
         .dynamic()
