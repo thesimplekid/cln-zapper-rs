@@ -34,6 +34,5 @@ https://github.com/jb55/cln-nostr-zapper
 
 
 ## TODO
- - [ ] Verify invoice amount matches zap amount
  - [ ] multiple relays from config
  - [ ] Spawn broadcast of zap notes
