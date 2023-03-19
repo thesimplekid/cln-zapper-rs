@@ -13,7 +13,8 @@ description = "Core Lightning plugin for sending zap (NIP-57) notes"
 [dependencies]
 anyhow = "1.0.69"
 log = "0.4"
-cln-plugin = "0.1.2"
+# cln-plugin = "0.1.2"
+cln-plugin = { git = "https://github.com/ElementsProject/lightning" }
 cln-rpc = "0.1.2"
 futures = "0.3.26"
 serde = "1"

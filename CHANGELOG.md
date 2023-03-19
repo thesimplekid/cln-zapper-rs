@@ -1,5 +1,7 @@
 # Changelog
 
+- Fix: Shutdown plugin with lightningd 
+
 ## 0.2.2
 - Improvement: Correct use for optional configs
 - Improvement: Check zap request amount matches invoice amount

@@ -1,5 +1,6 @@
 use anyhow::{anyhow, Result};
 use cln_plugin::options::{ConfigOption, Value};
+use cln_plugin::Plugin;
 use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
 use dirs::data_dir;
 use futures::{Stream, StreamExt};
@@ -42,6 +43,13 @@ async fn main() -> anyhow::Result<()> {
             Value::OptString,
             "Path to pay index",
         ))
+        .subscribe("shutdown",
+            // Handle CLN `shutdown` if it is sent 
+            |plugin: Plugin<()>, _: serde_json::Value| async move {
+            info!("Received \"shutdown\" notification from lightningd ... requesting cln_plugin shutdown");
+            plugin.shutdown().ok();
+            plugin.join().await
+        })
         .dynamic()
         .start(())
         .await?
