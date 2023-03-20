@@ -283,11 +283,11 @@ fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
         _ => return Err(anyhow!("Too many e tags")),
     };
 
-    let relays: Vec<String> = zap_request
+    let relays: HashSet<String> = zap_request
         .tags
         .iter()
         .filter_map(|tag| match tag {
-            Tag::Generic(TagKind::Custom(name), values) if name == "relays" => Some(
+            Tag::Relays(values) => Some(
                 values
                     .iter()
                     .map(|value| value.to_string())
@@ -298,13 +298,9 @@ fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
         .flatten()
         .collect();
 
-    let relays: HashSet<String> = relays.iter().cloned().collect();
-
     let amount = zap_request.tags.iter().find_map(|tag| {
-        if let Tag::Generic(TagKind::Custom(ref name), value) = tag {
-            if name == "amount" {
-                return value[0].parse().ok();
-            }
+        if let Tag::Amount(a) = tag {
+            return Some(a.to_owned());
         }
         None
     });
@@ -337,25 +333,16 @@ fn create_zap_note(
     };
 
     // Add bolt11 tag
-    tags.push(Tag::Generic(
-        TagKind::Custom("bolt11".to_string()),
-        vec![bolt11],
-    ));
+    tags.push(Tag::Bolt11(bolt11));
 
     // Add description tag
     // description of bolt11 invoice a JSON encoded zap request
-    tags.push(Tag::Generic(
-        TagKind::Custom("description".to_string()),
-        vec![invoice.description],
-    ));
+    tags.push(Tag::Description(invoice.description));
 
     // Add preimage tag if set
     // Pre image is optional according to the spec
     if let Some(pre_image) = invoice.payment_preimage {
-        tags.push(Tag::Generic(
-            TagKind::Custom("preimage".to_string()),
-            vec![pre_image.to_vec().to_hex()],
-        ));
+        tags.push(Tag::Preimage(pre_image.to_vec().to_hex()));
     }
 
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)

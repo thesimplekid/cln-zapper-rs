@@ -20,6 +20,6 @@ futures = "0.3.26"
 serde = "1"
 serde_json = "1"
 tokio = { version = "1.26.0", features = [ "full" ] }
-nostr = { version = "0.19.5", default_features = false, features = ["nip19"] }
+nostr = { git = "https://github.com/rust-nostr/nostr", rev = "09b3786160ec809c5c4a3e7f2d5722cc1f83ef7f" , default_features = false, features = ["nip19"] }
 tungstenite = { version = "0.18", features = ["rustls-tls-webpki-roots"]}
 dirs = "4.0"
