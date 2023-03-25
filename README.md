@@ -1,4 +1,6 @@
-[![Crates.io](https://img.shields.io/crates/v/cargo-index-transit.svg)](https://crates.io/crates/cln-zapper)
+[![crates.io](https://img.shields.io/crates/v/cln-zapper.svg)](https://crates.io/crates/cln-zapper)
+[![CI](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/lint.yml/badge.svg)](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/lint.yml)
+
 # Core Lightning plugin for sending zap events
 
 You can add the plugin by copying it to CLN's plugin directory or by adding the following line to your config file:
@@ -31,8 +33,3 @@ I can be contacted for comments or questions on nostr at _@thesimplekid.com (npu
 https://github.com/elsirion/clnurl
 
 https://github.com/jb55/cln-nostr-zapper
-
-
-## TODO
- - [ ] multiple relays from config
- - [ ] Spawn broadcast of zap notes
