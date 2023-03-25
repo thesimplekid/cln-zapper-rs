@@ -1,5 +1,6 @@
 [![crates.io](https://img.shields.io/crates/v/cln-zapper.svg)](https://crates.io/crates/cln-zapper)
 [![CI](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/lint.yml/badge.svg)](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/lint.yml)
+[![CI](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/test.yml/badge.svg)](https://github.com/thesimplekid/cln-zapper-rs/actions/workflows/test.yml)
 
 # Core Lightning plugin for sending zap events
 
