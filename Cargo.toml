@@ -1,6 +1,6 @@
 [package]
 name = "cln-zapper"
-version = "0.2.2"
+version = "0.2.3"
 edition = "2021"
 authors = ["thesimplekid"]
 license = "BSD-3-Clause"
@@ -13,13 +13,13 @@ description = "Core Lightning plugin for sending zap (NIP-57) notes"
 [dependencies]
 anyhow = "1.0.69"
 log = "0.4"
-# cln-plugin = "0.1.2"
-cln-plugin = { git = "https://github.com/ElementsProject/lightning" }
+cln-plugin = "0.1.2"
 cln-rpc = "0.1.2"
 futures = "0.3.26"
 serde = "1"
 serde_json = "1"
 tokio = { version = "1.26.0", features = [ "full" ] }
-nostr = { git = "https://github.com/rust-nostr/nostr", rev = "09b3786160ec809c5c4a3e7f2d5722cc1f83ef7f" , default_features = false, features = ["nip19"] }
+nostr = { version = "0.20.0", default_features = false, features = ["nip19"] }
 tungstenite = { version = "0.18", features = ["rustls-tls-webpki-roots"]}
 dirs = "4.0"
+hex = "0.4.3"

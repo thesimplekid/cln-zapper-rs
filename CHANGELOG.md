@@ -1,12 +1,12 @@
 # Changelog
 
 
-## [Unreleased]
+## [0.2.3]
 ### Fixed
 - Fix: Shutdown plugin with lightningd
 
 ### Change
-- Upgrade dependencies: `nostr` to use `NIP57` tag kinds
+- deps: bump `nostr` to `0.20.0`
 
 ## [0.2.2]
 ### Change

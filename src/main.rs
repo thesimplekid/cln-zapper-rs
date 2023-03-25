@@ -5,14 +5,12 @@ use cln_rpc::model::{WaitanyinvoiceRequest, WaitanyinvoiceResponse};
 use dirs::data_dir;
 use futures::{Stream, StreamExt};
 use log::{debug, warn};
-use nostr::prelude::hex::ToHex;
 use serde::Serialize;
 use std::path::PathBuf;
 use std::time::Duration;
 use tokio::io::{stdin, stdout};
 
-use nostr::event::Event;
-use nostr::prelude::*;
+use nostr::{event::Event, key::FromSkStr, ClientMessage, EventBuilder, Keys, Tag};
 
 use tungstenite::Message as WsMessage;
 
@@ -342,7 +340,7 @@ fn create_zap_note(
     // Add preimage tag if set
     // Pre image is optional according to the spec
     if let Some(pre_image) = invoice.payment_preimage {
-        tags.push(Tag::Preimage(pre_image.to_vec().to_hex()));
+        tags.push(Tag::Preimage(hex::encode(pre_image.to_vec())));
     }
 
     Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
@@ -410,6 +408,8 @@ mod tests {
 
     #[test]
     fn test_create_zap_note() {
+        use cln_rpc::primitives::Sha256;
+        use nostr::prelude::*;
         use nostr::Keys;
 
         let keys =
@@ -419,7 +419,7 @@ mod tests {
 
         let zap_req_info = decode_zap_req(zap_req).unwrap();
 
-        let invoice = WaitanyinvoiceResponse { label: "c15c98b0-81fe-4864-a9c5-ffad716d466a".to_string(), description: zap_req.to_string(), payment_hash: sha256::Hash::from_str("83f34c56502833b28dc64b382ef8462c2f5edb19c427fd5456d46bfc5c35914b").unwrap(), status: cln_rpc::model::WaitanyinvoiceStatus::PAID, expires_at: 1687338240, amount_msat: Some(Amount::from_msat(5000)), bolt11: Some("lnbc500n1pjq7u7jsp5n5jth3w6d4wjnjmup0nwlr2xfqthg8leru8yj8cyqf3sszapfxeqpp5s0e5c4js9qem9rwxfvuza7zx9sh4akcecsnl64zk634lchp4j99shp5ctnx2g7vddpve39pa35f70d4yua7fypfqjepcygq938ev86ekd7sxqyjw5qcqpjrzjqvhxqvs0ulx0mf5gp6x2vw047capck4pxqnsjv0gg8a4zaegej6gxzlgzuqqttgqqyqqqqqqqqqqqqqqyg9qyysgqs80g00rantwaay8g6wwev33v7xgtu8qkmq4hflgs93ygrxccry6qlhksdd0497pusvlsx3emk0hj5ghecxf6pw84tgxf99r5jg7mjrgpammhml".to_string()), bolt12: None, pay_index: Some(1), amount_received_msat: Some(Amount::from_msat(50000)), paid_at: Some(1687251840), payment_preimage: None};
+        let invoice = WaitanyinvoiceResponse { label: "c15c98b0-81fe-4864-a9c5-ffad716d466a".to_string(), description: zap_req.to_string(), payment_hash: Sha256::from_str("83f34c56502833b28dc64b382ef8462c2f5edb19c427fd5456d46bfc5c35914b").unwrap(), status: cln_rpc::model::WaitanyinvoiceStatus::PAID, expires_at: 1687338240, amount_msat: Some(Amount::from_msat(5000)), bolt11: Some("lnbc500n1pjq7u7jsp5n5jth3w6d4wjnjmup0nwlr2xfqthg8leru8yj8cyqf3sszapfxeqpp5s0e5c4js9qem9rwxfvuza7zx9sh4akcecsnl64zk634lchp4j99shp5ctnx2g7vddpve39pa35f70d4yua7fypfqjepcygq938ev86ekd7sxqyjw5qcqpjrzjqvhxqvs0ulx0mf5gp6x2vw047capck4pxqnsjv0gg8a4zaegej6gxzlgzuqqttgqqyqqqqqqqqqqqqqqyg9qyysgqs80g00rantwaay8g6wwev33v7xgtu8qkmq4hflgs93ygrxccry6qlhksdd0497pusvlsx3emk0hj5ghecxf6pw84tgxf99r5jg7mjrgpammhml".to_string()), bolt12: None, pay_index: Some(1), amount_received_msat: Some(Amount::from_msat(50000)), paid_at: Some(1687251840), payment_preimage: None};
 
         let zap_note = create_zap_note(&keys, zap_req_info, invoice.clone()).unwrap();
 
