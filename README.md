@@ -7,7 +7,7 @@
 You can add the plugin by copying it to CLN's plugin directory or by adding the following line to your config file:
 
 ```
-plugin=/path/to/clnurl
+plugin=/path/to/cln-zapper
 ```
 
 ## Options
