@@ -12,6 +12,8 @@ plugin=/path/to/cln-zapper
 
 This plugin only handles the zap note. You will also need an lnurl server to create invoice like https://github.com/elsirion/clnurl. I would recommend setting that up first.
 
+This guide can be followed for more details on how to set up: https://github.com/TheFockinFury/Non-Custodial-Nostr-Zaps-CLN
+
 
 ## Options
 `cln-zapper` exposes the following config options that can be included in CLN's config file or as command line flags:
