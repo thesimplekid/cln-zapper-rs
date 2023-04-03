@@ -537,8 +537,7 @@ dependencies = [
 [[package]]
 name = "nostr"
 version = "0.20.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "cfd8d37c53cce9d4c7e63c7fdbe1154ff4911262bf99917ade3b17bd40c8e60a"
+source = "git+https://github.com/thesimplekid/nostr?branch=relay-string#dd02a9c1a3606424cdd3b495c91b30667d5a0800"
 dependencies = [
  "bech32",
  "bitcoin_hashes 0.12.0",

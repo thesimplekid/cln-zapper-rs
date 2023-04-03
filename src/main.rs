@@ -247,7 +247,10 @@ struct ZapRequestInfo {
 
 /// Decode str of JSON zap note
 fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
+    println!("zp");
     let zap_request: Event = Event::from_json(description)?;
+
+    println!("zp: {:?}", zap_request);
 
     // Verify zap request is a valid nostr event
     zap_request.verify()?;
@@ -415,7 +418,9 @@ mod tests {
         let keys =
             Keys::from_sk_str("505fd02741816952ec9a70204221acdd8458906d3e1e0604fef033876c811a8f")
                 .unwrap();
-        let zap_req = "{\"content\":\"\",\"created_at\":1678734288,\"id\":\"c93b75ff70b07d28287059d750756f93281ac779cd780e7d61b781f9862c5a81\",\"kind\":9734,\"pubkey\":\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\",\"sig\":\"512d0a3ec6b9797810272b9dc05cadb7f6d271ff72a183350f643fa761bc37820e877563ddc1c5ef30a549a63115a6e907412a60de1dbe35dd7ea3b431a534ba\",\"tags\":[[\"e\",\"d07f03815931a3767ea91ee9cb3920758cd6dcb4e206ef0f1061f7e3c51f338e\"],[\"p\",\"00003687cecf074d81949ce8b95a860789e2be03925f3d3860ae27573fdc2218\"],[\"relays\",\"wss://nostr.wine\",\"wss://relay.damus.io\",\"wss://relay.orangepill.dev\",\"wss://dublin.saoirse.dev\",\"wss://relay.utxo.one\",\"wss://relay.nostr.band\",\"wss://nostr-pub.wellorder.net\",\"wss://nostr.milou.lol\",\"wss://nostr.oxtr.dev\",\"wss://eden.nostr.land\",\"wss://mutinywallet.com\",\"wss://nostr.zebedee.cloud\",\"wss://brb.io\"],[\"amount\",\"50000\"]]}";
+        // let zap_req = "{\"content\":\"\",\"created_at\":1678734288,\"id\":\"c93b75ff70b07d28287059d750756f93281ac779cd780e7d61b781f9862c5a81\",\"kind\":9734,\"pubkey\":\"04918dfc36c93e7db6cc0d60f37e1522f1c36b64d3f4b424c532d7c595febbc5\",\"sig\":\"512d0a3ec6b9797810272b9dc05cadb7f6d271ff72a183350f643fa761bc37820e877563ddc1c5ef30a549a63115a6e907412a60de1dbe35dd7ea3b431a534ba\",\"tags\":[[\"e\",\"d07f03815931a3767ea91ee9cb3920758cd6dcb4e206ef0f1061f7e3c51f338e\"],[\"p\",\"00003687cecf074d81949ce8b95a860789e2be03925f3d3860ae27573fdc2218\"],[\"relays\",\"wss://nostr.wine\",\"wss://relay.damus.io\",\"wss://relay.orangepill.dev\",\"wss://dublin.saoirse.dev\",\"wss://relay.utxo.one\",\"wss://relay.nostr.band\",\"wss://nostr-pub.wellorder.net\",\"wss://nostr.milou.lol\",\"wss://nostr.oxtr.dev\",\"wss://eden.nostr.land\",\"wss://mutinywallet.com\",\"wss://nostr.zebedee.cloud\",\"wss://brb.io\"],[\"amount\",\"50000\"]]}";
+
+        let zap_req = "{\"content\":\"\",\"created_at\":1680535967,\"id\":\"0237c32a241cbbdb6d8c7984befbd04428643669007f5d12efb7806863ac746e\",\"kind\":9734,\"pubkey\":\"1abbe81befdec27c7b571df65e5f96f41fac32233698290dee4c5b09fb57d6bb\",\"sig\":\"3e5fd2d74972b9aba7519e5c239b413f78cb8b1dd9f1349f883d6c1edf6619e36ca423524a99d3d8739fde095557a287e7690e1fca1a5ecea16e846035499e39\",\"tags\":[[\"e\",\"9b8e5879b8f895b229c97a87deb1232d96499d746209625284dd8de65ebb52e3\"],[\"p\",\"3036e986c4cef0b2615e6bcf2d6d411310c73872f30c99b19ab7ba58a2df9f98\"],[\"relays\",\"wss://relay.damus.io\",\"wss://eden.nostr.land\",\"wss://nos.lol\",\"wss://nostr.mutinywallet.com/\",\"wss://offchain.pub\",\"wss://relay.damus.io/\",\"wss://relay.current.fyi\",\"wss://relay.snort.social\",\"wss://nostr.btcmp.com\",\"wss://adult.18plus.social/\"]]}";
 
         let zap_req_info = decode_zap_req(zap_req).unwrap();
 
