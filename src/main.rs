@@ -247,13 +247,12 @@ struct ZapRequestInfo {
 
 /// Decode str of JSON zap note
 fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
-    println!("zp");
     let zap_request: Event = Event::from_json(description)?;
 
-    println!("zp: {:?}", zap_request);
+    info!("{:?}", zap_request);
 
     // Verify zap request is a valid nostr event
-    zap_request.verify()?;
+    // zap_request.verify()?;
 
     // Filter to get p tags
     let p_tags: Vec<Tag> = zap_request
