@@ -84,7 +84,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
-    info!("Pay index path {pay_index_path:?}");
+    info!("Pay index path: {pay_index_path:?}");
 
     let mut relays = HashSet::new();
     relays.insert(nostr_relay);
@@ -249,10 +249,7 @@ struct ZapRequestInfo {
 fn decode_zap_req(description: &str) -> Result<ZapRequestInfo> {
     let zap_request: Event = Event::from_json(description)?;
 
-    info!("{:?}", zap_request);
-
-    // Verify zap request is a valid nostr event
-    // zap_request.verify()?;
+    // info!("{:?}", zap_request.as_json());
 
     // Filter to get p tags
     let p_tags: Vec<Tag> = zap_request
