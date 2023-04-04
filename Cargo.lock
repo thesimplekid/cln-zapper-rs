@@ -155,7 +155,7 @@ dependencies = [
 
 [[package]]
 name = "cln-zapper"
-version = "0.2.3"
+version = "0.2.4"
 dependencies = [
  "anyhow",
  "cln-plugin",
@@ -537,6 +537,7 @@ dependencies = [
 [[package]]
 name = "nostr"
 version = "0.20.0"
+source = "git+https://github.com/thesimplekid/nostr?rev=dd02a9c1a3606424cdd3b495c91b30667d5a0800#dd02a9c1a3606424cdd3b495c91b30667d5a0800"
 dependencies = [
  "bech32",
  "bitcoin_hashes 0.12.0",

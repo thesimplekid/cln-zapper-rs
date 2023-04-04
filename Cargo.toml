@@ -19,7 +19,7 @@ futures = "0.3.26"
 serde = "1"
 serde_json = "1"
 tokio = { version = "1.26.0", features = [ "full" ] }
-nostr = { git = "https://github.com/thesimplekid/nostr", branch = "relay-string", rev = "dd02a9c1a3606424cdd3b495c91b30667d5a0800", default_features = false, features = ["nip19"] }
+nostr = { git = "https://github.com/thesimplekid/nostr", rev = "dd02a9c1a3606424cdd3b495c91b30667d5a0800", default_features = false, features = ["nip19"] }
 tungstenite = { version = "0.18", features = ["rustls-tls-webpki-roots"]}
 dirs = "4.0"
 hex = "0.4.3"
