@@ -342,7 +342,7 @@ fn create_zap_note(
         tags.push(Tag::Preimage(hex::encode(pre_image.to_vec())));
     }
 
-    Ok(EventBuilder::new(nostr::Kind::Zap, "".to_string(), &tags).to_event(keys)?)
+    Ok(EventBuilder::new(nostr::Kind::ZapReceipt, "".to_string(), &tags).to_event(keys)?)
 }
 
 /// Default file path for last pay index tip
