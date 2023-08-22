@@ -147,7 +147,7 @@ async fn broadcast_zap_note(relays: &HashSet<String>, zap_note: Event) -> Result
         // Send msg
         let msg = ClientMessage::new_event(zap_note.clone()).as_json();
         socket
-            .write_message(WsMessage::Text(msg))
+            .send(WsMessage::Text(msg))
             .expect("Impossible to send message");
     }
 
