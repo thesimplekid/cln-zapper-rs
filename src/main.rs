@@ -84,6 +84,7 @@ async fn main() -> anyhow::Result<()> {
         }
     };
 
+    debug!("{:?}", pay_index_path);
     info!("Pay index path: {pay_index_path:?}");
 
     let mut relays = HashSet::new();

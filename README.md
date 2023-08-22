@@ -19,6 +19,7 @@ This guide can be followed for more details on how to set up: https://github.com
 `cln-zapper` exposes the following config options that can be included in CLN's config file or as command line flags:
 * `clnzapper_nostr_nsec`: The nostr private key used to sign zapper notes
 * `clnzapper_nostr_relay`: The default nostr relay to publish to
+* `clnzapper_pay_index_path`: path to save most recent pay index. Defaults to `datadir`.
 
 ## License
 
